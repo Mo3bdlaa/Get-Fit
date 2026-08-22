@@ -18,6 +18,7 @@ export type Action = "read" | "create" | "update" | "delete";
 export type Resource =
   | { type: "profile"; ownerId: string }
   | { type: "workout_log"; ownerId: string }
+  | { type: "workout_session"; ownerId: string }
   | { type: "exercise"; visibility: "global" | "private"; ownerId: string | null };
 
 export class AuthorizationError extends Error {

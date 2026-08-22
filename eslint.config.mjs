@@ -20,6 +20,13 @@ export default [
     ],
   },
   js.configs.recommended,
+  {
+    // Build and deploy scripts run in Node, not the browser.
+    files: ["scripts/**/*.{js,mjs}", "*.mjs"],
+    languageOptions: {
+      globals: { process: "readonly", console: "readonly", URL: "readonly" },
+    },
+  },
   ...tseslint.configs.recommended,
   // Type-aware rules, for one reason above all: `no-floating-promises` and
   // `no-misused-promises` are what catch a missing `await` on the async

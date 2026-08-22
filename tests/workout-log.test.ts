@@ -56,10 +56,11 @@ describe("one row per set (BRD §9)", () => {
     expect(nextDay.setIndex).toBe(1);
   });
 
-  it("groups a day by UTC, not by the server's local zone", async () => {
-    // 23:30 UTC and 00:30 UTC the next day are different days even though they
-    // are 60 minutes apart. Whatever TZ the test host runs in, this must hold.
-    await logSet(sam, {
+  it("keeps a workout that crosses midnight together, and still charts two days", async () => {
+    // 23:30 and 00:30 are one workout an hour apart, so they share a session and
+    // the set numbering runs on. The chart groups by the UTC calendar day
+    // regardless — whatever timezone the test host runs in.
+    const before = await logSet(sam, {
       exerciseId: squatId,
       weightKg: 100,
       reps: 5,
@@ -72,7 +73,8 @@ describe("one row per set (BRD §9)", () => {
       performedAt: "2026-08-21T00:30:00.000Z",
     });
 
-    expect(afterMidnight.setIndex).toBe(1);
+    expect(afterMidnight.sessionId).toBe(before.sessionId);
+    expect(afterMidnight.setIndex).toBe(2);
     expect((await volumeByDay(sam, sam.id)).map((point) => point.day)).toEqual([
       "2026-08-20",
       "2026-08-21",

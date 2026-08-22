@@ -18,7 +18,8 @@ retrofitting either one means rewriting history.
 ## Verify command
 
 `npm run verify` — lint, typecheck, unit tests, production build. Runs in about
-30 seconds, inside the Stop hook's 45-second budget.
+33 seconds, inside the Stop hook's 45-second budget. The three checks run
+concurrently (`scripts/verify.mjs`) because the budget is real.
 
 The end-to-end browser test is **not** in `verify`: it builds and boots the app,
 which takes about 30 seconds on its own. Run it with `npm run test:e2e`, or
@@ -86,6 +87,44 @@ which takes about 30 seconds on its own. Run it with `npm run test:e2e`, or
     log a set, see it in the recent list, see it on the chart, sign out. — Test:
     `e2e/walking-skeleton.spec.ts`
 
+## Acceptance criteria — workout sessions
+
+Added when sets moved from day attribution to sessions. Criteria 1–18 are
+unchanged and still pass; criterion 6 in particular still holds, because a set
+logged the next day is more than an idle window after the last one and so opens
+a new session. Its wording says "on one day", which is now true incidentally
+rather than by rule — that is the product owner's edit to make, not this
+document's.
+
+19. Every set belongs to a session. Logging with no session open creates one
+    implicitly and later sets join it; no row in `workout_logs` has a null
+    `session_id`. — Test: `tests/workout-session.test.ts`
+20. Two sessions on the same calendar day are distinct, and each numbers its
+    sets from 1. — Test: `tests/workout-session.test.ts`
+21. `set_index` counts within (session, exercise): a second exercise in the same
+    session starts at 1, and a unique index rejects a duplicate index for one
+    session and exercise. — Test: `tests/workout-session.test.ts`,
+    `tests/migration.test.ts`
+22. The daily volume chart is unchanged by sessions: two sessions on one day
+    aggregate into a single point whose total and set count span both. — Test:
+    `tests/workout-session.test.ts`, `tests/workout-log.test.ts`
+23. A session stops being current once nothing has been logged into it for
+    `SESSION_IDLE_MINUTES` (default 6 hours): a later set opens a new session
+    numbered from 1, a long session with sets still arriving stays one session,
+    and a backdated set does not join an unrelated later session. — Test:
+    `tests/workout-session.test.ts`
+24. Ending a session stamps `ended_at`, never earlier than its last set; ending
+    an unknown or malformed id reports false rather than throwing. — Test:
+    `tests/workout-session.test.ts`
+25. Sessions go through `assertCan` like every other user-owned record: another
+    trainee cannot read, list, or end one; an admin may read one and the read is
+    audited, but may not end it; a session's `owner_id` always equals its
+    `user_id`. — Test: `tests/workout-session.test.ts`
+26. Migration 002 upgrades a database that already holds day-attributed sets:
+    every set gets a session, one per owner per UTC day, no set changes owner or
+    day, no `set_index` changes value, and each backfilled session spans its
+    sets and is closed. — Test: `tests/migration.test.ts`
+
 ## Out of scope
 
 - AI equipment scan and AI programme generation (R2) — including the §8.3
@@ -97,6 +136,9 @@ which takes about 30 seconds on its own. Run it with `npm run test:e2e`, or
 - Nutrition (R4).
 - Programme entity, equipment profile, measurements log, full 800-exercise
   catalogue import, offline logging and sync (R1).
+- Session start/stop UI. Sessions exist in the model and are opened implicitly;
+  the screen that starts and finishes one arrives with programme execution in
+  R1. `workout_sessions.program_id` is the column it will fill.
 - Billing — v1 is free (D1).
 - Deployment to a hosted environment. R0's BRD exit criterion includes it; it is
   blocked on two open decisions, recorded in `docs/decisions.md`.

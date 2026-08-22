@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "verify": "npm run lint && npm run typecheck && npm run test && npm run build",
+    "verify": "node scripts/verify.mjs",
     "verify:full": "npm run verify && npm run test:e2e",
     "db:migrate": "tsx scripts/migrate.ts"
   },
