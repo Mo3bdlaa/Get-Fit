@@ -91,6 +91,79 @@ None of these are used to their full extent yet — there is no team, so nothing
 reads `visibility` beyond the owner check — but they are the fields §9 says
 cannot be retrofitted, so they are here before there is history to rewrite.
 
+## Sessions: `user_id` and `owner_id` are both there, and constrained equal
+
+The brief asked for both. On `workout_sessions` they name the same person in
+every row that can exist today, and two columns that must always agree are a
+divergence waiting to happen — so `CHECK (owner_id = user_id)` holds them
+together. `owner_id` is what the authorisation layer reads; `user_id` is the
+domain relationship R1's programme execution will talk about.
+
+**A note for the product owner:** if they are still identical when the coach
+layer lands, one of them should go. The constraint is the thing to drop first if
+a coach ever needs to open a session *for* a trainee — at which point they stop
+meaning the same thing and both earn their place.
+
+## Sessions have an idle window, because they have no UI yet
+
+Sets are attributed to a session, and a set logged with no session open creates
+one. With no start/stop screen, nothing would ever close it — so every set a
+user ever logged would join their first session and the "Set 47" they saw in the
+recent list would climb without end. That is a visible regression on today's
+per-day numbering, so:
+
+A session stops being current once nothing has been logged into it for
+`SESSION_IDLE_MINUTES` (default six hours). The window is measured from the
+*set's own timestamp*, not from `now()`, so importing a week of past training
+produces a session per workout rather than one enormous one.
+
+**Cost of changing:** small and expected. R1's session UI replaces the implicit
+open with an explicit start and finish; the idle window then becomes a safety
+net for sessions a user forgot to end, not the mechanism.
+
+## Authorisation is enforced, not merely available
+
+`assertCan` was correct and optional. Nothing failed when a path skipped it, and
+the R0 note's claim — that a missing audit row would show up — was not detection,
+because nobody was looking.
+
+**Chosen: (a), a static-analysis test** (`tests/authz-enforcement.test.ts`),
+over (b) a lint rule. The reason is coverage, not taste:
+
+- A lint rule can state *rule 1* — do not import the database outside the
+  repositories. That is an import-graph property, which is what lint is good at.
+- It cannot state *rule 2* — an exported repository function that reaches the
+  database must call `assertCan`. That is a property of what a function does,
+  including through a local helper, and it needs the transitive call set within
+  the file. Expressing it means writing and packaging a custom ESLint plugin.
+- Nor *rule 3* — that the exemption list contains no entry that has stopped
+  describing a real function. Without it a waiver list rots into a blanket one.
+
+So all four rules live in one place, in the suite that already runs, and read as
+ordinary code rather than plugin scaffolding. They cost about 0.15s.
+
+What the checks actually assert:
+
+| Rule | Fails when |
+| --- | --- |
+| 1 | anything outside `lib/db`, `lib/repo`, `authz.ts` imports `query`/`queryOne`/`execute`, or a driver, or `@/lib/db` wholesale — including `await import(...)` |
+| 2 | an exported repository function reaches the database, directly or through a local helper, without calling `assertCan` |
+| 3 | an exemption names a function that no longer exists or no longer touches the database, or gives no reason |
+| 4 | an exported server action other than register/login/sign-out does not call `requireUser()` |
+
+Demonstrated both ways round: a server action doing its own `SELECT … WHERE
+owner_id = $1` fails rules 1 and 4; a repository function querying without
+`assertCan` fails rule 2. Both were reverted.
+
+The six exemptions are all pre-authorisation or reference data — registration,
+the credential check, resolving the session cookie, and the exercise catalogue —
+and each carries its reason in the file.
+
+**What this does not catch:** a repository function that authorises the *wrong*
+resource, or an actor assembled from something other than the session cookie. The
+first is what `tests/authz.test.ts` is for; the second is rule 4's job only at the
+entry point.
+
 ## Authorisation is a layer, not a set of WHERE clauses
 
 `src/lib/authz.ts` holds every decision. `assertCan` throws, and it writes the

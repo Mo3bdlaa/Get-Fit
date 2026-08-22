@@ -125,6 +125,27 @@ document's.
     day, no `set_index` changes value, and each backfilled session spans its
     sets and is closed. — Test: `tests/migration.test.ts`
 
+## Acceptance criteria — enforced authorisation
+
+27. Nothing outside `src/lib/db`, `src/lib/repo`, and `src/lib/authz.ts` reaches
+    the database: importing `query`, `queryOne`, or `execute`, importing a
+    driver, or importing `@/lib/db` wholesale — statically or with
+    `await import(...)` — fails the build. — Test:
+    `tests/authz-enforcement.test.ts`
+28. Every exported repository function that reaches the database, directly or
+    through a local helper, calls `assertCan`. Exceptions exist only as a named
+    entry in the exemption list with a stated reason. — Test:
+    `tests/authz-enforcement.test.ts`
+29. The exemption list cannot rot: an entry naming a function that no longer
+    exists, or that no longer reaches the database, or that gives no reason,
+    fails the build. — Test: `tests/authz-enforcement.test.ts`
+30. Every exported server action other than register, sign-in, and sign-out
+    calls `requireUser()`. — Test: `tests/authz-enforcement.test.ts`
+31. A server action that reads another user's data without `assertCan` makes
+    `npm run verify` fail, as does a repository function that queries without it.
+    — Test: `tests/authz-enforcement.test.ts` (demonstrated and reverted; see
+    `docs/decisions.md`)
+
 ## Out of scope
 
 - AI equipment scan and AI programme generation (R2) — including the §8.3

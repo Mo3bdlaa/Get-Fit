@@ -63,13 +63,16 @@ src/lib/db/         connection, driver selection, migrations
 src/lib/repo/       every query lives here — nothing else touches the database
 src/lib/authz.ts    the single authorisation layer (BRD §10)
 src/lib/i18n/       en + ar message catalogues
+scripts/            verify runner, migrations, the e2e database
 tests/              unit tests (fast, in `verify`)
 e2e/                Playwright (slow, outside `verify`)
 ```
 
-Three rules from the BRD are load-bearing in the code and should not be relaxed:
+Four rules are load-bearing in the code and should not be relaxed:
 
 1. `workout_logs` holds **one row per set** (§9).
 2. Every user-owned read and write goes through `assertCan` — route handlers do
-   not filter by owner themselves (§10).
+   not filter by owner themselves (§10). `tests/authz-enforcement.test.ts` fails
+   the build if a code path skips it.
 3. Deletes are soft; only an erasure job removes rows (§9).
+4. A set belongs to a session, not to a calendar day.
