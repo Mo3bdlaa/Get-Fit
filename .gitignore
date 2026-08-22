@@ -1,2 +1,17 @@
 # Autopilot iteration counter — per-checkout loop state, not shared configuration.
 .claude/.autopilot-iter
+
+# Node / Next.js
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# Local database and secrets
+data/
+.env
+.env.local
+
+# Playwright
+playwright-report/
+test-results/
