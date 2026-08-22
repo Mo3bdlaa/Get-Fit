@@ -1,5 +1,4 @@
-import { getDb } from "@/lib/db";
-import { newId, nowIso } from "@/lib/ids";
+import { execute } from "@/lib/db";
 
 /**
  * The single server-side authorisation layer (BRD §10).
@@ -49,28 +48,40 @@ function decide(actor: Actor, action: Action, resource: Resource): boolean {
   return false;
 }
 
-function recordAudit(actor: Actor, action: Action, resource: Resource): void {
+async function recordAudit(
+  actor: Actor,
+  action: Action,
+  resource: Resource,
+): Promise<void> {
   if (resource.type === "exercise") return; // catalogue reads are not personal data
   if (resource.ownerId === actor.id) return; // NFR7 covers *another* user's data
 
-  getDb()
-    .prepare(
-      `INSERT INTO audit_log (id, actor_id, subject_id, action, resource_type, resource_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .run(newId(), actor.id, resource.ownerId, action, resource.type, null, nowIso());
+  await execute(
+    `INSERT INTO audit_log (actor_id, subject_id, action, resource_type)
+     VALUES ($1, $2, $3, $4)`,
+    [actor.id, resource.ownerId, action, resource.type],
+  );
 }
 
 export function can(actor: Actor, action: Action, resource: Resource): boolean {
   return decide(actor, action, resource);
 }
 
-/** Throws unless the actor may perform `action`; records cross-user access. */
-export function assertCan(actor: Actor, action: Action, resource: Resource): void {
+/**
+ * Throws unless the actor may perform `action`; records cross-user access.
+ *
+ * Awaited, not fire-and-forget: the NFR7 audit row must be committed before the
+ * data it records is handed back.
+ */
+export async function assertCan(
+  actor: Actor,
+  action: Action,
+  resource: Resource,
+): Promise<void> {
   if (!decide(actor, action, resource)) {
     throw new AuthorizationError(
       `${actor.role} may not ${action} ${resource.type}`,
     );
   }
-  recordAudit(actor, action, resource);
+  await recordAudit(actor, action, resource);
 }

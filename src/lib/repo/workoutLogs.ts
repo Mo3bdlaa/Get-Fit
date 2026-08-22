@@ -1,12 +1,17 @@
 import { z } from "zod";
-import { getDb } from "@/lib/db";
-import { newId, nowIso } from "@/lib/ids";
+import { query, queryOne } from "@/lib/db";
 import { assertCan, type Actor } from "@/lib/authz";
 import { findExerciseById } from "@/lib/repo/exercises";
+import { isUuid } from "@/lib/ids";
 
 /**
  * One row per set — the BRD's first non-negotiable (§9). Nothing here ever
  * aggregates sets into a "3x5" record; the chart derives volume from the rows.
+ *
+ * "Day" means the UTC calendar day. The SQLite schema this replaced stored ISO
+ * strings and read the same way, so behaviour is unchanged — but it is now
+ * explicit in the SQL rather than a property of the storage format. Per-user
+ * timezones are R1 work, alongside the profile.
  */
 
 export type LoggedSet = {
@@ -55,12 +60,14 @@ type SetRow = {
   notes: string | null;
 };
 
-const SELECT_SETS = `
+const SELECT_SET = `
   SELECT w.id, w.owner_id, w.exercise_id, e.name_en, e.name_ar,
          w.performed_at, w.set_index, w.weight_kg, w.reps, w.rpe, w.notes
   FROM workout_logs w
-  JOIN exercises e ON e.id = w.exercise_id
-  WHERE w.owner_id = ? AND w.deleted_at IS NULL`;
+  JOIN exercises e ON e.id = w.exercise_id`;
+
+/** The UTC calendar day of a timestamp column, as Postgres sees it. */
+const UTC_DAY = (column: string) => `(${column} AT TIME ZONE 'UTC')::date`;
 
 function toSet(row: SetRow): LoggedSet {
   return {
@@ -78,106 +85,109 @@ function toSet(row: SetRow): LoggedSet {
   };
 }
 
-/** set_index is derived, never supplied: it is the next set of that exercise that day. */
-function nextSetIndex(ownerId: string, exerciseId: string, day: string): number {
-  const row = getDb()
-    .prepare(
-      `SELECT COALESCE(MAX(set_index), 0) AS max_index
-       FROM workout_logs
-       WHERE owner_id = ? AND exercise_id = ? AND date(performed_at) = date(?)
-         AND deleted_at IS NULL`,
-    )
-    .get(ownerId, exerciseId, day) as { max_index: number };
-  return row.max_index + 1;
-}
-
-export function logSet(actor: Actor, input: SetInput): LoggedSet {
+export async function logSet(actor: Actor, input: SetInput): Promise<LoggedSet> {
   const parsed = setSchema.parse(input);
-  assertCan(actor, "create", { type: "workout_log", ownerId: actor.id });
+  await assertCan(actor, "create", { type: "workout_log", ownerId: actor.id });
 
-  if (!findExerciseById(parsed.exerciseId)) throw new UnknownExerciseError();
+  if (!(await findExerciseById(parsed.exerciseId))) throw new UnknownExerciseError();
 
-  const performedAt = parsed.performedAt ?? nowIso();
-  const now = nowIso();
-  const id = newId();
-
-  getDb()
-    .prepare(
-      `INSERT INTO workout_logs
-         (id, owner_id, exercise_id, performed_at, set_index, weight_kg, reps, rpe, notes,
-          visibility, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'private', ?, ?)`,
-    )
-    .run(
-      id,
+  // set_index is derived, never supplied: it is the next set of that exercise
+  // that day. Deriving it inside the INSERT rather than in a prior SELECT means
+  // two sets logged at once cannot both read the same maximum.
+  const rows = await query<{ id: string }>(
+    `INSERT INTO workout_logs
+       (owner_id, exercise_id, performed_at, set_index, weight_kg, reps, rpe, notes)
+     SELECT $1::uuid, $2::uuid, $3::timestamptz,
+            COALESCE(MAX(w.set_index), 0) + 1,
+            $4::double precision, $5::integer, $6::double precision, $7::text
+     FROM workout_logs w
+     WHERE w.owner_id = $1::uuid
+       AND w.exercise_id = $2::uuid
+       AND ${UTC_DAY("w.performed_at")} = ${UTC_DAY("$3::timestamptz")}
+       AND w.deleted_at IS NULL
+     RETURNING id`,
+    [
       actor.id,
       parsed.exerciseId,
-      performedAt,
-      nextSetIndex(actor.id, parsed.exerciseId, performedAt),
+      parsed.performedAt ?? new Date().toISOString(),
       parsed.weightKg,
       parsed.reps,
       parsed.rpe ?? null,
       parsed.notes ?? null,
-      now,
-      now,
-    );
+    ],
+  );
 
-  return findSet(actor, id)!;
+  return (await findSet(actor, rows[0].id))!;
 }
 
-export function findSet(actor: Actor, id: string): LoggedSet | null {
-  const row = getDb()
-    .prepare(
-      `SELECT w.id, w.owner_id, w.exercise_id, e.name_en, e.name_ar,
-              w.performed_at, w.set_index, w.weight_kg, w.reps, w.rpe, w.notes
-       FROM workout_logs w JOIN exercises e ON e.id = w.exercise_id
-       WHERE w.id = ? AND w.deleted_at IS NULL`,
-    )
-    .get(id) as SetRow | undefined;
+export async function findSet(actor: Actor, id: string): Promise<LoggedSet | null> {
+  if (!isUuid(id)) return null;
+
+  const row = await queryOne<SetRow>(
+    `${SELECT_SET} WHERE w.id = $1 AND w.deleted_at IS NULL`,
+    [id],
+  );
   if (!row) return null;
 
-  assertCan(actor, "read", { type: "workout_log", ownerId: row.owner_id });
+  await assertCan(actor, "read", { type: "workout_log", ownerId: row.owner_id });
   return toSet(row);
 }
 
-export function listSets(actor: Actor, ownerId: string, limit = 50): LoggedSet[] {
-  assertCan(actor, "read", { type: "workout_log", ownerId });
-  const rows = getDb()
-    .prepare(`${SELECT_SETS} ORDER BY w.performed_at DESC, w.set_index DESC LIMIT ?`)
-    .all(ownerId, limit) as SetRow[];
+export async function listSets(
+  actor: Actor,
+  ownerId: string,
+  limit = 50,
+): Promise<LoggedSet[]> {
+  await assertCan(actor, "read", { type: "workout_log", ownerId });
+  const rows = await query<SetRow>(
+    `${SELECT_SET}
+     WHERE w.owner_id = $1 AND w.deleted_at IS NULL
+     ORDER BY w.performed_at DESC, w.set_index DESC
+     LIMIT $2`,
+    [ownerId, limit],
+  );
   return rows.map(toSet);
 }
 
-export function softDeleteSet(actor: Actor, id: string): boolean {
-  const row = getDb()
-    .prepare("SELECT owner_id FROM workout_logs WHERE id = ? AND deleted_at IS NULL")
-    .get(id) as { owner_id: string } | undefined;
+export async function softDeleteSet(actor: Actor, id: string): Promise<boolean> {
+  if (!isUuid(id)) return false;
+
+  const row = await queryOne<{ owner_id: string }>(
+    "SELECT owner_id FROM workout_logs WHERE id = $1 AND deleted_at IS NULL",
+    [id],
+  );
   if (!row) return false;
 
-  assertCan(actor, "delete", { type: "workout_log", ownerId: row.owner_id });
-  const now = nowIso();
-  getDb()
-    .prepare("UPDATE workout_logs SET deleted_at = ?, updated_at = ? WHERE id = ?")
-    .run(now, now, id);
+  await assertCan(actor, "delete", { type: "workout_log", ownerId: row.owner_id });
+  await query(
+    "UPDATE workout_logs SET deleted_at = now(), updated_at = now() WHERE id = $1",
+    [id],
+  );
   return true;
 }
 
 export type VolumePoint = { day: string; volumeKg: number; sets: number };
 
 /** Daily training volume (Σ weight × reps) — the R0 chart's series. */
-export function volumeByDay(actor: Actor, ownerId: string): VolumePoint[] {
-  assertCan(actor, "read", { type: "workout_log", ownerId });
-  const rows = getDb()
-    .prepare(
-      `SELECT date(performed_at) AS day,
-              SUM(weight_kg * reps) AS volume_kg,
-              COUNT(*) AS sets
-       FROM workout_logs
-       WHERE owner_id = ? AND deleted_at IS NULL
-       GROUP BY date(performed_at)
-       ORDER BY day`,
-    )
-    .all(ownerId) as { day: string; volume_kg: number; sets: number }[];
+export async function volumeByDay(
+  actor: Actor,
+  ownerId: string,
+): Promise<VolumePoint[]> {
+  await assertCan(actor, "read", { type: "workout_log", ownerId });
+
+  // `count(*)` is bigint, which `pg` hands back as a string — cast it here so
+  // the domain type is honest. `to_char` keeps the day a calendar string rather
+  // than a Date pinned to the server's zone.
+  const rows = await query<{ day: string; volume_kg: number; sets: number }>(
+    `SELECT to_char(${UTC_DAY("performed_at")}, 'YYYY-MM-DD') AS day,
+            SUM(weight_kg * reps)::double precision AS volume_kg,
+            COUNT(*)::integer AS sets
+     FROM workout_logs
+     WHERE owner_id = $1 AND deleted_at IS NULL
+     GROUP BY ${UTC_DAY("performed_at")}
+     ORDER BY 1`,
+    [ownerId],
+  );
 
   return rows.map((row) => ({
     day: row.day,

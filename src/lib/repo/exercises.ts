@@ -1,6 +1,6 @@
-import { getDb } from "@/lib/db";
-import { newId, nowIso } from "@/lib/ids";
+import { query, queryOne } from "@/lib/db";
 import { assertCan, type Actor } from "@/lib/authz";
+import { isUuid } from "@/lib/ids";
 
 export type Exercise = {
   id: string;
@@ -70,54 +70,63 @@ const SEED: ReadonlyArray<Omit<Exercise, "id" | "visibility" | "ownerId">> = [
   },
 ];
 
-/** Idempotent: safe to run on every boot and in every test. */
-export function seedCatalogue(): void {
-  const db = getDb();
-  const insert = db.prepare(
-    `INSERT INTO exercises (id, slug, name_en, name_ar, equipment, primary_muscle, visibility, owner_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, 'global', NULL, ?, ?)`,
-  );
-  const exists = db.prepare("SELECT 1 FROM exercises WHERE slug = ?");
-
-  db.transaction(() => {
-    const now = nowIso();
-    for (const item of SEED) {
-      if (exists.get(item.slug)) continue;
-      insert.run(
-        newId(),
-        item.slug,
-        item.nameEn,
-        item.nameAr,
-        item.equipment,
-        item.primaryMuscle,
-        now,
-        now,
-      );
-    }
-  })();
+/**
+ * Idempotent: safe to run on every boot and in every test.
+ *
+ * No `assertCan`: the catalogue is reference data, not a user's record, and the
+ * seed runs at startup where there is no actor. Carried as a named exemption in
+ * `tests/authz-enforcement.test.ts`.
+ *
+ * `ON CONFLICT (slug) WHERE deleted_at IS NULL` — the arbiter index is partial,
+ * so the predicate has to be restated for Postgres to infer it.
+ */
+export async function seedCatalogue(): Promise<void> {
+  for (const item of SEED) {
+    await query(
+      `INSERT INTO exercises (slug, name_en, name_ar, equipment, primary_muscle)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (slug) WHERE deleted_at IS NULL DO NOTHING`,
+      [item.slug, item.nameEn, item.nameAr, item.equipment, item.primaryMuscle],
+    );
+  }
 }
 
-export function listCatalogue(actor: Actor): Exercise[] {
-  assertCan(actor, "read", { type: "exercise", visibility: "global", ownerId: null });
-  const rows = getDb()
-    .prepare(
-      `${SELECT} WHERE deleted_at IS NULL AND (visibility = 'global' OR owner_id = ?)
-       ORDER BY name_en`,
-    )
-    .all(actor.id) as ExerciseRow[];
+export async function listCatalogue(actor: Actor): Promise<Exercise[]> {
+  await assertCan(actor, "read", {
+    type: "exercise",
+    visibility: "global",
+    ownerId: null,
+  });
+  const rows = await query<ExerciseRow>(
+    `${SELECT} WHERE deleted_at IS NULL AND (visibility = 'global' OR owner_id = $1)
+     ORDER BY name_en`,
+    [actor.id],
+  );
   return rows.map(toExercise);
 }
 
-export function findExerciseById(id: string): Exercise | null {
-  const row = getDb()
-    .prepare(`${SELECT} WHERE id = ? AND deleted_at IS NULL`)
-    .get(id) as ExerciseRow | undefined;
+/**
+ * No `assertCan`: an id lookup against reference data, used to validate input.
+ *
+ * The uuid screen matters: unlike SQLite, Postgres raises a type error for a
+ * malformed uuid rather than returning no rows, and this is fed straight from a
+ * form field.
+ */
+export async function findExerciseById(id: string): Promise<Exercise | null> {
+  if (!isUuid(id)) return null;
+
+  const row = await queryOne<ExerciseRow>(
+    `${SELECT} WHERE id = $1 AND deleted_at IS NULL`,
+    [id],
+  );
   return row ? toExercise(row) : null;
 }
 
-export function findExerciseBySlug(slug: string): Exercise | null {
-  const row = getDb()
-    .prepare(`${SELECT} WHERE slug = ? AND deleted_at IS NULL`)
-    .get(slug) as ExerciseRow | undefined;
+/** No `assertCan`: reference data lookup by slug, used by seeds and tests. */
+export async function findExerciseBySlug(slug: string): Promise<Exercise | null> {
+  const row = await queryOne<ExerciseRow>(
+    `${SELECT} WHERE slug = $1 AND deleted_at IS NULL`,
+    [slug],
+  );
   return row ? toExercise(row) : null;
 }

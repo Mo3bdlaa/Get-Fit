@@ -19,17 +19,24 @@ npm install
 npm run dev            # http://localhost:3000
 ```
 
-The database is a SQLite file at `data/get-fit.db`, created on first run.
-Migrations in `src/lib/db/migrations/` apply automatically, and the exercise
-catalogue seeds itself.
+The database is Postgres. With no `DATABASE_URL` set, `npm run dev` starts
+PGlite — Postgres 18 compiled to WebAssembly, in-process — so there is nothing
+to install to get going. Point `DATABASE_URL` at a real Postgres and it uses
+that instead; in production it insists on one.
 
-Set `SESSION_SECRET` for anything other than local development — the app refuses
-to start in production without it.
+Migrations in `src/lib/db/migrations/` apply on first use behind an advisory
+lock, and the exercise catalogue seeds itself. Run them ahead of traffic with:
+
+```shell
+DATABASE_URL='postgres://…' npm run db:migrate
+```
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SESSION_SECRET` | insecure dev value | signs the session cookie; **required** in production |
-| `GETFIT_DB_PATH` | `data/get-fit.db` | SQLite file, or `:memory:` |
+| `DATABASE_URL` | PGlite in-process | Postgres connection string; **required** in production |
+| `PGPOOL_MAX` | `5` | connection pool size |
+| `SCRYPT_COST_LOG2` | `14` | password hashing cost; lowered only by the test suite |
 
 ## Checks
 
@@ -42,12 +49,17 @@ npm run verify:full    # both
 `npm run verify` is what the autopilot Stop hook runs, so it has to stay inside
 the hook's 45-second budget. The browser test is deliberately outside it.
 
+The browser test needs no database service: `scripts/e2e-server.ts` starts
+PGlite as a *server* on a port and the app connects to it with the same `pg`
+driver it uses against Neon. Set `E2E_DATABASE_URL` to run it against a real
+Postgres instead.
+
 ## Layout
 
 ```
 src/app/            routes and server actions
 src/components/     client components
-src/lib/db/         connection, migrations
+src/lib/db/         connection, driver selection, migrations
 src/lib/repo/       every query lives here — nothing else touches the database
 src/lib/authz.ts    the single authorisation layer (BRD §10)
 src/lib/i18n/       en + ar message catalogues

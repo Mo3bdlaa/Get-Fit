@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { SignJWT } from "jose";
-import { getDb } from "@/lib/db";
+import { queryOne } from "@/lib/db";
 import { authenticate, registerUser, EmailTakenError } from "@/lib/repo/users";
 import { hashPassword, verifyPassword } from "@/lib/auth/password";
 import { createSessionToken, readSessionToken } from "@/lib/auth/session";
@@ -8,7 +8,9 @@ import { freshDatabase } from "./helpers";
 
 const PASSWORD = "correct-horse-battery";
 
-beforeEach(() => freshDatabase());
+beforeEach(async () => {
+  await freshDatabase();
+});
 
 describe("registration", () => {
   it("creates an account that can then sign in", async () => {
@@ -34,12 +36,13 @@ describe("registration", () => {
       displayName: "Sam",
     });
 
-    const row = getDb()
-      .prepare("SELECT password_hash FROM users WHERE email = ?")
-      .get("sam@example.com") as { password_hash: string };
+    const row = (await queryOne<{ password_hash: string }>(
+      "SELECT password_hash FROM users WHERE email = $1",
+      ["sam@example.com"],
+    ))!;
 
     expect(row.password_hash).not.toContain(PASSWORD);
-    expect(row.password_hash.startsWith("scrypt$")).toBe(true);
+    expect(row.password_hash).toMatch(/^scrypt\$\d+\$[0-9a-f]+\$[0-9a-f]+$/);
     expect(await verifyPassword(PASSWORD, row.password_hash)).toBe(true);
   });
 

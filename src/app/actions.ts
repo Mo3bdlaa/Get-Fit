@@ -21,6 +21,16 @@ import { UnknownExerciseError, logSet } from "@/lib/repo/workoutLogs";
 import type { MessageKey } from "@/lib/i18n";
 import type { FormState } from "@/lib/formState";
 
+/**
+ * A form field as a string. `FormData.get` also returns `File`, which would
+ * stringify to "[object Object]" and sail into the database as a plausible
+ * value — so a non-string field is read as absent.
+ */
+function field(formData: FormData, name: string): string {
+  const value = formData.get(name);
+  return typeof value === "string" ? value : "";
+}
+
 async function startSession(user: User): Promise<void> {
   (await cookies()).set(SESSION_COOKIE, await createSessionToken(user.id), {
     httpOnly: true,
@@ -45,14 +55,14 @@ export async function registerAction(
   _prev: FormState,
   formData: FormData,
 ): Promise<FormState> {
-  bootstrap();
+  await bootstrap();
   let user: User;
   try {
     user = await registerUser({
-      email: String(formData.get("email") ?? ""),
-      password: String(formData.get("password") ?? ""),
-      displayName: String(formData.get("displayName") ?? ""),
-      locale: formData.get("locale") === "ar" ? "ar" : "en",
+      email: field(formData, "email"),
+      password: field(formData, "password"),
+      displayName: field(formData, "displayName"),
+      locale: field(formData, "locale") === "ar" ? "ar" : "en",
     });
   } catch (error) {
     return { error: registrationErrorKey(error) };
@@ -66,10 +76,10 @@ export async function loginAction(
   _prev: FormState,
   formData: FormData,
 ): Promise<FormState> {
-  bootstrap();
+  await bootstrap();
   const user = await authenticate(
-    String(formData.get("email") ?? ""),
-    String(formData.get("password") ?? ""),
+    field(formData, "email"),
+    field(formData, "password"),
   );
   if (!user) return { error: "authInvalid" };
 
@@ -88,12 +98,12 @@ export async function logSetAction(
 ): Promise<FormState> {
   const { actor } = await requireUser();
   try {
-    logSet(actor, {
-      exerciseId: String(formData.get("exerciseId") ?? ""),
-      weightKg: String(formData.get("weightKg") ?? ""),
-      reps: String(formData.get("reps") ?? ""),
-      rpe: formData.get("rpe") ? String(formData.get("rpe")) : null,
-      notes: formData.get("notes") ? String(formData.get("notes")) : null,
+    await logSet(actor, {
+      exerciseId: field(formData, "exerciseId"),
+      weightKg: field(formData, "weightKg"),
+      reps: field(formData, "reps"),
+      rpe: field(formData, "rpe") || null,
+      notes: field(formData, "notes") || null,
     });
   } catch (error) {
     if (error instanceof UnknownExerciseError) return { error: "logUnknownExercise" };

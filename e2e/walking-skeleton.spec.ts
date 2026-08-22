@@ -14,7 +14,9 @@ test("a new user registers, logs a set, and sees it on the chart", async ({ page
   await page.getByLabel("Password").fill("correct-horse-battery");
   await page.getByRole("button", { name: "Create account" }).click();
 
-  await expect(page).toHaveURL(/\/log$/);
+  // The first write of the run pays for migrations, so this one waits longer
+  // than the default 5s.
+  await expect(page).toHaveURL(/\/log$/, { timeout: 30_000 });
   await expect(page.getByRole("heading", { name: "Log a set" })).toBeVisible();
 
   await page.getByLabel("Weight (kg)").fill("100");
@@ -51,7 +53,7 @@ test("an Arabic account gets an RTL document and Arabic copy (NFR6)", async ({ p
   await page.getByLabel("Language").selectOption("ar");
   await page.getByRole("button", { name: "Create account" }).click();
 
-  await expect(page).toHaveURL(/\/log$/);
+  await expect(page).toHaveURL(/\/log$/, { timeout: 30_000 });
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await expect(page.locator("html")).toHaveAttribute("lang", "ar");
   await expect(page.getByRole("heading", { name: "سجّل مجموعة" })).toBeVisible();

@@ -24,14 +24,13 @@ export default defineConfig({
     },
   },
   webServer: {
-    command: `npm run build && npm run start -- --port ${PORT}`,
+    command: `npm run build && npx tsx scripts/e2e-server.ts`,
     url: `http://127.0.0.1:${PORT}/login`,
     reuseExistingServer: false,
     timeout: 180_000,
     env: {
-      GETFIT_DB_PATH: "data/e2e.db",
+      PORT: String(PORT),
       SESSION_SECRET: "e2e-secret",
-      NODE_ENV: "production",
     },
   },
 });

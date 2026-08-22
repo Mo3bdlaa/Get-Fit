@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 export default async function ProgressPage() {
   const { user, actor } = await requireUser();
   const m = messages(user.locale);
-  const points = volumeByDay(actor, user.id);
+  const points = await volumeByDay(actor, user.id);
 
   return (
     <>

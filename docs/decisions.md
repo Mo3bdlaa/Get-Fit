@@ -4,18 +4,82 @@ Choices made while building the walking skeleton that the BRD did not settle,
 plus the ones it settled that constrained the code. Each says what it costs to
 change later, so R1 knows what is cheap and what is not.
 
-## Storage: SQLite now, Postgres at R1
+## Storage: Neon Postgres, `pg` driver
 
-`better-sqlite3` against a file on disk. It needs no service to provision, which
-is what makes R0 runnable end to end today, and its SQL is close enough to
-Postgres that the migration is mechanical.
+Superseded the R0 SQLite choice. Managed Postgres is Neon and the host is
+Vercel; both were settled by the owner, so neither is an open decision.
 
-Every query lives in `src/lib/repo/*`. Route handlers and components never touch
-the database directly, so the swap is confined to those files plus
-`src/lib/db/index.ts`.
+One driver, `pg`, against Neon's **pooled** endpoint (the `-pooler` host). Neon
+speaks the standard wire protocol, so nothing in the code is Neon-specific and a
+move to another managed Postgres is a connection string. The serverless HTTP
+driver was considered and rejected: it only talks to Neon, and it would have made
+local development and the browser test dependent on a Neon account.
 
-**Cost of changing:** low, and it has to happen before deployment — SQLite on a
-local disk does not survive a serverless host.
+Where there is no `DATABASE_URL`, the same code runs against **PGlite** —
+Postgres 18 compiled to WebAssembly, in-process. It is the same engine, so the
+migrations and queries the unit tests exercise are the ones that run in
+production. In production a missing `DATABASE_URL` throws rather than falling
+back.
+
+**Cost of changing:** the swap stayed inside `src/lib/db/index.ts` and
+`src/lib/repo/*`, exactly as the R0 note predicted. Nothing in the routes or
+components changed.
+
+## The migration is a rewrite, not a transliteration
+
+The SQLite DDL was not ported line by line. What changed and why:
+
+| SQLite | Postgres | Why |
+| --- | --- | --- |
+| `TEXT` keys, ids from `randomUUID()` | `uuid` with `DEFAULT gen_random_uuid()` | the database owns identity; `RETURNING id` hands it back |
+| `TEXT` timestamps holding ISO strings | `timestamptz` | a real instant type, comparable and indexable |
+| `REAL` | `double precision` | `numeric` would come back from `pg` as a string, and none of these are money |
+| `date(performed_at)` | `(performed_at AT TIME ZONE 'UTC')::date` | "day" is now explicit rather than a property of the storage format |
+| `COUNT(*)` | `COUNT(*)::integer` | `pg` returns `bigint` as a *string*; the cast keeps the domain type honest |
+| `INSERT OR IGNORE` | `ON CONFLICT (slug) WHERE deleted_at IS NULL DO NOTHING` | the arbiter index is partial, so Postgres needs the predicate restated to infer it |
+| read-max-then-insert | one `INSERT … SELECT COALESCE(MAX(set_index), 0) + 1` | SQLite's single writer hid the race; Postgres does not |
+
+Two behaviours are unchanged on purpose: "day" still means the UTC calendar day
+(a per-user timezone is R1 work, with the profile), and set numbering still
+restarts daily until Task 2 moves it to sessions.
+
+Identifiers are unquoted and lower case throughout, so they fold the same way
+whatever a client does with quoting.
+
+## Async: the type checker was not enough
+
+`better-sqlite3` is synchronous; `pg` is not. `tsc` catches a dropped `await`
+only where the result is used as a value — it is perfectly happy with
+`if (somePromise)`, or with `expect(() => repoCall()).toThrow()`, which passes
+whatever the code does.
+
+So `eslint.config.mjs` now runs typescript-eslint's **type-checked** rules over
+`src/`, `tests/`, and `e2e/`, for `no-floating-promises` and
+`no-misused-promises` above all. Deliberately dropping one `await` turns up 19
+lint errors. It costs about 6s of the verify budget and is the reason the
+missing-await audit is mechanical rather than a careful read.
+
+It also caught something unrelated and real: `String(formData.get(x))` renders a
+`File` as `"[object Object]"`, which would have gone into the database as a
+plausible-looking value.
+
+## PGlite, and where it stops
+
+Unit tests run against in-process PGlite: one instance shared by the whole run
+(`isolate: false`, one worker), because booting it costs ~5s and paying that per
+file put `npm run verify` over budget. Each database test truncates in
+`beforeEach`.
+
+The browser test cannot use it in-process. `next start` serves page renders and
+server actions from **separate module instances**, so an in-process database
+gets opened twice — writes land in one copy, reads come from the other, and the
+symptom is a set that logs successfully and then does not appear. So
+`scripts/e2e-server.ts` runs PGlite as a *server* over the Postgres wire
+protocol and the app connects with `pg`, one database, real driver. Its
+`maxConnections` defaults to 1 and has to be raised for the same reason.
+
+What none of this exercises is Neon itself — the network, the pooler, TLS. That
+is what the manual smoke test of the deployed URL is for.
 
 ## The schema honours §9's non-negotiables from the first migration
 

@@ -9,8 +9,8 @@ export const dynamic = "force-dynamic";
 export default async function LogPage() {
   const { user, actor } = await requireUser();
   const m = messages(user.locale);
-  const exercises = listCatalogue(actor);
-  const recent = listSets(actor, user.id, 20);
+  const exercises = await listCatalogue(actor);
+  const recent = await listSets(actor, user.id, 20);
   const last = recent[0];
 
   return (

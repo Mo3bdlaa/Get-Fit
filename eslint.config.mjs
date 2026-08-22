@@ -21,6 +21,19 @@ export default [
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,
+  // Type-aware rules, for one reason above all: `no-floating-promises` and
+  // `no-misused-promises` are what catch a missing `await` on the async
+  // Postgres driver. `tsc` is happy to let a `Promise<boolean>` be truthy.
+  ...tseslint.configs.recommendedTypeChecked.map((config) => ({
+    ...config,
+    files: ["src/**/*.{ts,tsx}", "tests/**/*.ts", "e2e/**/*.ts"],
+  })),
+  {
+    files: ["src/**/*.{ts,tsx}", "tests/**/*.ts", "e2e/**/*.ts"],
+    languageOptions: {
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+    },
+  },
   {
     files: ["**/*.{ts,tsx}"],
     plugins: { "react-hooks": reactHooks },
