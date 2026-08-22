@@ -1,0 +1,17 @@
+{
+  "name": "autopilot",
+  "description": "Sets up an autonomous review loop: a spec with objectively testable criteria, one verify command, and Stop hooks that keep the session working until every criterion is met.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Mo3bdlaa"
+  },
+  "repository": "https://github.com/Mo3bdlaa/Claude-Autopilot",
+  "license": "MIT",
+  "keywords": [
+    "autonomous",
+    "hooks",
+    "stop-hook",
+    "verification",
+    "review-loop"
+  ]
+}

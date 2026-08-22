@@ -1,0 +1,2 @@
+# Autopilot iteration counter — per-checkout loop state, not shared configuration.
+.claude/.autopilot-iter

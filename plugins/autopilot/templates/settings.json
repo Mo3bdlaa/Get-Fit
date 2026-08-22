@@ -1,0 +1,100 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/verify.sh",
+            "timeout": 55,
+            "statusMessage": "autopilot: running verify"
+          },
+          {
+            "type": "prompt",
+            "prompt": "You are the judgment half of an autonomous review loop. The cheap objective check (test + build) is handled by a separate command hook; do not re-run or second-guess it. Your only job is to compare the work against the acceptance criteria in docs/spec.md.\n\nStop event data:\n$ARGUMENTS\n\nProcedure:\n1. Read docs/spec.md. If it does not exist or contains no numbered acceptance criteria, return {\"ok\": true} -- there is nothing to judge against.\n2. Compare the transcript of this turn and the current working-tree diff against every numbered criterion.\n3. Judge only what the criteria actually require. Do not invent new requirements, style preferences, or scope.\n\nRespond with JSON only:\n\n- Every criterion met, with evidence in the transcript or diff:\n  {\"ok\": true}\n\n- One or more criteria unmet:\n  {\"ok\": false, \"reason\": \"<instruction>\"}\n  The reason is fed back to Claude as its next instruction, so write it as a command to execute, never as a complaint. Name the specific numbered criterion and the concrete next action.\n  Good: \"Criterion 3 is unmet: no test asserts the 401 path. Add a test in tests/auth.test.ts that posts an expired token and asserts a 401 response.\"\n  Bad: \"The auth work looks incomplete and the tests are weak.\"\n  Cite one criterion -- the lowest-numbered unmet one -- so the loop makes measurable progress each pass.\n\n- A criterion can never be satisfied in this environment (missing credentials or secrets, unavailable external service, requirements that contradict each other, or a criterion that is not objectively checkable):\n  {\"ok\": false, \"impossible\": true, \"reason\": \"<which criterion, and why it is unsatisfiable>\"}\n  This ends the turn instead of spinning. Use it whenever more attempts cannot change the outcome.\n\nReturn the JSON object and nothing else.",
+            "timeout": 45,
+            "statusMessage": "autopilot: checking spec criteria"
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Bash(npm test:*)",
+      "Bash(npm run:*)",
+      "Bash(npm ci:*)",
+      "Bash(npm install:*)",
+      "Bash(pnpm test:*)",
+      "Bash(pnpm run:*)",
+      "Bash(pnpm install:*)",
+      "Bash(yarn test:*)",
+      "Bash(yarn run:*)",
+      "Bash(yarn install:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npx prettier:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx jest:*)",
+      "Bash(make:*)",
+      "Bash(cargo test:*)",
+      "Bash(cargo build:*)",
+      "Bash(cargo check:*)",
+      "Bash(cargo clippy:*)",
+      "Bash(cargo fmt:*)",
+      "Bash(go test:*)",
+      "Bash(go build:*)",
+      "Bash(go vet:*)",
+      "Bash(gofmt:*)",
+      "Bash(pytest:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(python -m build:*)",
+      "Bash(ruff:*)",
+      "Bash(mypy:*)",
+      "Bash(black:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git restore:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "Bash(git switch:*)",
+      "Bash(git fetch:*)",
+      "Bash(git pull:*)",
+      "Bash(git stash:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git blame:*)",
+      "Bash(git push:*)"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(rm -fr:*)",
+      "Bash(rm -r -f:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push --force-with-lease:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -fd:*)",
+      "Bash(git filter-branch:*)",
+      "Bash(chmod 777:*)",
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(**/.env)",
+      "Read(secrets/**)",
+      "Read(**/*.pem)",
+      "Read(**/id_rsa*)",
+      "Read(~/.aws/**)",
+      "Read(~/.ssh/**)",
+      "Edit(.env)",
+      "Edit(.env.*)",
+      "Edit(**/.env)",
+      "Edit(secrets/**)"
+    ]
+  }
+}

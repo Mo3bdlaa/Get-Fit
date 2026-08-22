@@ -1,0 +1,13 @@
+{
+  "name": "autopilot",
+  "owner": {
+    "name": "Mo3bdlaa"
+  },
+  "plugins": [
+    {
+      "name": "autopilot",
+      "source": "./plugins/autopilot",
+      "description": "Sets up an autonomous review loop: a spec with objectively testable criteria, one verify command, and Stop hooks that keep the session working until every criterion is met."
+    }
+  ]
+}
