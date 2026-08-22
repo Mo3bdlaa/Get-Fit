@@ -214,10 +214,32 @@ not fit in that budget. CI runs `npm run verify:full`.
 
 ## Not done, and why
 
-- **Deployment.** R0's BRD exit criterion includes production. It is blocked on
-  two decisions that are the owner's, not the code's: which host, and which
-  managed Postgres. The app is otherwise deployable — one config change to the
-  storage layer and a `SESSION_SECRET`.
+- **Deployment.** The *decisions* are closed — Vercel and Neon — and the code is
+  ready for both. What is missing is a credential and a branch, neither of which
+  is mine to invent:
+
+  1. **A Neon connection string.** There is no Neon account, API key, or
+     `DATABASE_URL` reachable from this environment, and no Neon tooling. The
+     app refuses to start in production without one, by design.
+  2. **Something to deploy.** `main` still holds only the Autopilot template;
+     all of R0 is on `claude/check-and-proceed-45as9y`. A Vercel project linked
+     to the repository today would build the template.
+
+  Everything either needs is in place: `npm run db:migrate` applies the schema
+  and seeds the catalogue against whatever `DATABASE_URL` points at, the pooled
+  Neon endpoint is what the driver expects, and the only other required variable
+  is `SESSION_SECRET`.
+
+  | Variable | Value |
+  | --- | --- |
+  | `DATABASE_URL` | the Neon **pooled** connection string (the `-pooler` host) |
+  | `SESSION_SECRET` | any high-entropy random string, e.g. `openssl rand -base64 48` |
+
+  Until it is deployed, four of the R0 acceptance items are unverified: the
+  end-to-end flow on the deployed URL, both locales and RTL there, migrations
+  run against Neon, and the recorded URL below.
+
+- **Deployed URL:** not yet deployed. This line is the one to fill in.
 - **Open decisions O1–O5 (§3).** Untouched; they are product decisions. O2
   (default UI language) is currently English, in code as `DEFAULT_LOCALE` in
   `src/lib/i18n/index.ts` — a one-line change when O2 is answered.

@@ -161,5 +161,7 @@ document's.
   the screen that starts and finishes one arrives with programme execution in
   R1. `workout_sessions.program_id` is the column it will fill.
 - Billing — v1 is free (D1).
-- Deployment to a hosted environment. R0's BRD exit criterion includes it; it is
-  blocked on two open decisions, recorded in `docs/decisions.md`.
+- Deployment to a hosted environment. R0's BRD exit criterion includes it. The
+  host and database decisions are closed (Vercel, Neon) and the code is ready;
+  it is blocked on a Neon connection string and on R0 reaching a deployable
+  branch. See `docs/decisions.md`.
