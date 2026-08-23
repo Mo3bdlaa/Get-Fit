@@ -240,8 +240,7 @@ which is the correct fix, and the message says so.
 
 ## Not done, and why
 
-- **Deployment.** The cause was the Vercel project's **framework preset**, and it
-  is fixed in `vercel.json`.
+- **Deployment.** Fixed. The cause was the Vercel project's **framework preset**.
 
   The build failed with:
 
@@ -255,14 +254,17 @@ which is the correct fix, and the message says so.
   template — no `package.json`, no framework — so Vercel detected nothing and
   settled on "Other". It ran no Next.js build and then looked for a static site
   this project does not produce. That also explains the timing: the failure
-  landed nine seconds after the pull request opened, far too fast for a Next
+  arrived nine seconds after the pull request opened, far too fast for a Next
   build, because no Next build was ever run.
 
-  `vercel.json` now pins `"framework": "nextjs"` — the fix the error message
-  itself offers as the alternative to changing the dashboard. Keeping it in the
-  repository rather than in project settings means it is version controlled,
-  reviewable, and survives the project being recreated. The setting that broke
-  this was invisible both from here and from the code.
+  `vercel.json` now pins `"framework": "nextjs"` — the alternative the error
+  message itself offers. Keeping it in the repository rather than in project
+  settings means it is version controlled, reviewable, and survives the project
+  being recreated. The setting that broke this was invisible both from here and
+  from the code.
+
+  The next deployment went from `failure` to **`success`** on that change alone,
+  which is the evidence that this was the cause.
 
   **Two earlier diagnoses in this document were wrong**, and both were reached the
   same way: inferred from local reproduction and GitHub commit statuses, because
@@ -273,6 +275,38 @@ which is the correct fix, and the message says so.
   line of the actual build log settled in seconds what two rounds of inference
   did not. Recorded because it will recur: when the log is unreadable, say so and
   ask for it, rather than publishing the best available hypothesis as a cause.
+
+## Two reasons the deployed smoke test is still not run
+
+Both are environmental. Neither is a property of the application.
+
+**Preview deployments are behind Vercel Authentication.** Every route on the
+preview URL answers `302` to `vercel.com/sso-api`, so an anonymous client never
+reaches the app. A `curl -L` against it returns `200` — for Vercel's login page,
+not for `/login`. That is a trap worth naming: following redirects makes a
+protected deployment look healthy.
+
+Production domains are not covered by that protection under Vercel's standard
+settings, so the production URL should be reachable once `main` carries
+`vercel.json`.
+
+**Chromium has no outbound network in this sandbox.** Every navigation fails with
+`ERR_CONNECTION_RESET`, including `https://example.com`, with and without the
+egress proxy explicitly configured — while `curl` reaches the same URLs through
+that proxy and returns `200`. So the browser suite cannot be pointed at any
+remote deployment from here, whatever its protection settings.
+
+`playwright.config.ts` now accepts `E2E_BASE_URL` and skips its local web server
+when set, so the existing specs run unchanged against a deployment from anywhere
+that does have browser egress:
+
+```shell
+E2E_BASE_URL=https://<deployment> npm run test:e2e
+```
+
+That is one command on a laptop, or a CI job. It registers a real account in
+whatever database the deployment points at, which is expected for a smoke test
+and worth knowing before running it against production.
 
 
   **Still unverified, and not closable until a deployment succeeds:** the
