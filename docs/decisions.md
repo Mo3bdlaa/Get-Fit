@@ -214,6 +214,10 @@ not fit in that budget. CI runs `npm run verify:full`.
 
 ## A devDependency must not reach production, and a check says so
 
+*(This was a real defect, found while chasing a deployment failure. It did not
+turn out to be that failure's cause — the fix is worth keeping on its own
+merits.)*
+
 `serverExternalPackages` is not just "do not bundle this" — it is "require this
 at runtime", and Next's file tracer follows it into the serverless output. Point
 it at a devDependency and the build stays green while the deployment breaks,
@@ -236,8 +240,9 @@ which is the correct fix, and the message says so.
 
 ## Not done, and why
 
-- **Deployment.** Still not working, but the cause is now known and fixed in
-  code rather than unknown.
+- **Deployment.** Still failing, and the cause is **not** known. An earlier
+  version of this note claimed it was; that claim was wrong and is corrected
+  below.
 
   `main` exists, is the default branch, and carries R0 (PR #1 merged into the
   old default branch, PR #2 merged that into `main`). Vercel **is** git-connected
@@ -247,22 +252,31 @@ which is the correct fix, and the message says so.
   https://get-fit-amber.vercel.app still returns `x-vercel-error: NOT_FOUND` on
   every route.
 
-  The cause was a devDependency in the serverless output. `serverExternalPackages`
-  listed `@electric-sql/pglite`, so Next traced it into every route's file
-  manifest — 90 file references. The build itself passed, because devDependencies
-  are installed at build time; Vercel then pruned them and packaged a deployment
-  around files that no longer existed. Nothing in the app's own output explained
-  it, and the same build is green locally and in CI.
+  **A real defect was found and fixed, and it was not the cause.**
+  `serverExternalPackages` listed `@electric-sql/pglite`, so Next traced that
+  devDependency into every route's file manifest — 90 references per route. Vercel
+  prunes devDependencies after the build, so the packaged deployment would have
+  been built around files that no longer existed. That is a genuine bug and the
+  fix stands (assembled specifier plus `webpackIgnore`; 90 references to zero,
+  with `pg` still traced), guarded by `npm run check:traces` after every build.
 
-  Fixed by keeping PGlite out of the bundler's reach entirely: the specifier is
-  assembled at runtime and marked `webpackIgnore`, and it is no longer listed in
-  `serverExternalPackages`. Production never takes that branch; development and
-  tests resolve it from `node_modules` as before. The trace for each route went
-  from 90 PGlite references to zero, with `pg` — a real dependency — still traced.
+  But the deployment carrying that fix **also failed**
+  (`dpl_Bp5tNKSKnhEiBptoXVF3XsV1XumV`, PR #3, commit `350a953`). So the trace
+  issue was not what breaks the deploy, or not the only thing.
 
-  `npm run check:traces` now runs after every build and fails if any
-  devDependency appears in a trace manifest. Reintroducing the old configuration
-  makes it fail with the 90 references named.
+  The one new piece of evidence: that failure was reported **nine seconds** after
+  the pull request was opened. A Next build of this app takes 20–45 seconds
+  anywhere else it has run, so nine seconds is too fast to be a build failing —
+  it points at something before or around the build rather than inside it:
+  project settings, a plan or usage limit, or the deployment being rejected
+  outright. That is a direction to look, not a diagnosis, and it will not become
+  one from this environment.
+
+  **What is needed to get further:** the build log for a failed deployment
+  (`npx vercel inspect <id> --logs`, or the Vercel dashboard), or read access to
+  the project for this session. Everything above was inferred from local
+  reproduction and GitHub commit statuses, which is precisely how the wrong
+  conclusion got reached the first time.
 
   **Still unverified, and not closable until a deployment succeeds:** the
   end-to-end flow on the deployed URL, both locales and RTL there, and migrations
