@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Runs lint, typecheck, and the unit tests concurrently, then builds.
+ * Runs lint, typecheck, and the unit tests concurrently, then builds, then
+ * checks what the build traced into the serverless output.
  *
  * The Stop hook kills `npm run verify` at 45 seconds and reports the timeout as
  * a failure, so the budget is real. The three checks do not depend on each
@@ -46,4 +47,14 @@ if (build.code !== 0) {
   console.error("\nverify: build failed");
   process.exit(1);
 }
-console.log("\nverify: lint, typecheck, tests, build all passed");
+// The build's own success says nothing about what it traced into the serverless
+// output. This is what catches a devDependency reaching production.
+const traces = await run("check-traces", ["run", "check:traces"]);
+if (traces.code !== 0) {
+  process.stdout.write(`\n─── check-traces ───\n${traces.output}`);
+  console.error("\nverify: trace check failed");
+  process.exit(1);
+}
+process.stdout.write(traces.output);
+
+console.log("\nverify: lint, typecheck, tests, build, traces all passed");

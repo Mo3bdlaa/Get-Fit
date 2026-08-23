@@ -4,6 +4,44 @@ Choices made while building the walking skeleton that the BRD did not settle,
 plus the ones it settled that constrained the code. Each says what it costs to
 change later, so R1 knows what is cheap and what is not.
 
+## Standing working rules
+
+Not observations about one incident — rules that apply to the next one.
+
+### Inference is not evidence
+
+Local reproduction plus a red commit status is a hypothesis. It is not a cause,
+and it must not be written down or reported as one.
+
+Chasing a failed deployment in this repository produced two confident, wrong
+diagnoses in a row — a missing environment variable, then a devDependency traced
+into the serverless output — both reasoned from a local build and a GitHub status
+line, because the Vercel build log was unreadable from the session doing the
+work. The second was a real defect, which made it more convincing and no more
+correct. One line of the actual log settled it in seconds.
+
+So: **when the authoritative log is unreachable, say it is unreachable and ask
+for it.** Offer the hypothesis as a hypothesis, clearly labelled, and keep
+looking for the log. The cost of asking is one message. The cost of publishing a
+guess as a finding is that everyone downstream believes a fixed thing is fixed.
+
+The same rule covers absence: a tool returning 404 or an empty list because it
+lacks permission is not evidence that the thing does not exist. Report the limit,
+not a conclusion drawn from it.
+
+### Check the unredirected status before following redirects
+
+`curl -L` against an SSO-gated deployment returns `200` — for the identity
+provider's login page. The deployment looks healthy and is not serving the app at
+all. This exact mistake was made here: a preview URL was reported as "live and
+serving the app" on the strength of a followed redirect, when every route was
+answering `302` to `vercel.com/sso-api`.
+
+Check the raw status first (`curl -sSI`, or `-o /dev/null -w '%{http_code}'`
+without `-L`), then assert content, and only then follow redirects if the flow
+itself is what is under test. A `200` is only meaningful once you know which
+origin produced it.
+
 ## Storage: Neon Postgres, `pg` driver
 
 Superseded the R0 SQLite choice. Managed Postgres is Neon and the host is
@@ -212,53 +250,136 @@ does not.
 `npm run test:e2e` builds and boots the app for the Playwright run, which does
 not fit in that budget. CI runs `npm run verify:full`.
 
+## A devDependency must not reach production, and a check says so
+
+*(This was a real defect, found while chasing a deployment failure. It did not
+turn out to be that failure's cause — the fix is worth keeping on its own
+merits.)*
+
+`serverExternalPackages` is not just "do not bundle this" — it is "require this
+at runtime", and Next's file tracer follows it into the serverless output. Point
+it at a devDependency and the build stays green while the deployment breaks,
+because the pruning happens after the build. The failure surfaces on the host,
+with no local reproduction.
+
+Two ways out. Moving the package to `dependencies` is simplest but ships a WASM
+Postgres to a production path that never runs. Instead the import is hidden from
+static analysis: the specifier is assembled from parts and carries
+`webpackIgnore`, so neither webpack nor the tracer can resolve it, and Node
+resolves it at runtime where it exists.
+
+`scripts/check-traces.mjs` runs after every build and reads the trace manifests
+the build just wrote, failing if any devDependency appears. It is in `verify`, so
+the loop catches it, and it costs milliseconds.
+
+**Cost of changing:** none to speak of. If a package genuinely needs to be in the
+serverless output, move it to `dependencies` and the check stops complaining —
+which is the correct fix, and the message says so.
+
 ## Not done, and why
 
-- **Deployment.** A Vercel project now exists and is serving
-  **https://get-fit-amber.vercel.app** — but it is not serving this app. Every
-  route returns Vercel's own `NOT_FOUND` (`x-vercel-error: NOT_FOUND`,
-  `content-type: text/plain`, no Next.js response headers), which is what a
-  deployment of the Autopilot template looks like: no `package.json`, no
-  framework, no routes.
+- **Deployment.** Fixed. The cause was the Vercel project's **framework preset**.
 
-  The cause is the branch, not the configuration. This repository has no `main`;
-  its default branch is `claude/autonomous-review-loop-ryjsp2`, which holds only
-  the template. Vercel builds the default branch as production, so production is
-  the template. All of R0 is on `claude/check-and-proceed-45as9y`, open as PR #1
-  and unmerged.
+  The build failed with:
 
-  **What unblocks it:** merge PR #1 (and rename the default branch to `main`
-  while you are there). The next production build then contains the app.
+  ```
+  No Output Directory named "public" found after the Build completed.
+  Configure the Output Directory in your Project Settings.
+  ```
 
-  Two things could not be verified from this environment, and are not claims
-  this document should make:
+  `public` is the default output directory for Vercel's **"Other"** preset. The
+  project was created while this repository still held only the Autopilot
+  template — no `package.json`, no framework — so Vercel detected nothing and
+  settled on "Other". It ran no Next.js build and then looked for a static site
+  this project does not produce. That also explains the timing: the failure
+  arrived nine seconds after the pull request opened, far too fast for a Next
+  build, because no Next build was ever run.
 
-  - **That `DATABASE_URL` and `SESSION_SECRET` are set and scoped to
-    Production.** The Vercel MCP surface exposes no environment-variable API at
-    all, and this session's token cannot see the project — `list_projects` on
-    `mo3bdlaas-projects` returns empty and `get_project` 404s for every plausible
-    slug. The deployment 404s on every route, so the variables cannot be
-    inferred from behaviour either.
+  `vercel.json` now pins `"framework": "nextjs"` — the alternative the error
+  message itself offers. Keeping it in the repository rather than in project
+  settings means it is version controlled, reviewable, and survives the project
+  being recreated. The setting that broke this was invisible both from here and
+  from the code.
+
+  The next deployment went from `failure` to **`success`** on that change alone,
+  which is the evidence that this was the cause.
+
+  **Two earlier diagnoses in this document were wrong**, and both were reached the
+  same way: inferred from local reproduction and GitHub commit statuses, because
+  this session's Vercel token 404s on the project, its deployments, and their
+  build logs. The first guessed a missing environment variable; the second
+  guessed a devDependency traced into the serverless output. The second was a
+  real defect and its fix stands on its own merits — but it was not this. One
+  line of the actual build log settled in seconds what two rounds of inference
+  did not. Recorded because it will recur: when the log is unreadable, say so and
+  ask for it, rather than publishing the best available hypothesis as a cause.
+
+## Two reasons the deployed smoke test is still not run
+
+Both are environmental. Neither is a property of the application.
+
+**Preview deployments are behind Vercel Authentication.** Every route on the
+preview URL answers `302` to `vercel.com/sso-api`, so an anonymous client never
+reaches the app. A `curl -L` against it returns `200` — for Vercel's login page,
+not for `/login`. That is a trap worth naming: following redirects makes a
+protected deployment look healthy.
+
+Production domains are not covered by that protection under Vercel's standard
+settings, so the production URL should be reachable once `main` carries
+`vercel.json`.
+
+**Chromium has no outbound network in this sandbox.** Every navigation fails with
+`ERR_CONNECTION_RESET`, including `https://example.com`, with and without the
+egress proxy explicitly configured — while `curl` reaches the same URLs through
+that proxy and returns `200`. So the browser suite cannot be pointed at any
+remote deployment from here, whatever its protection settings.
+
+`playwright.config.ts` now accepts `E2E_BASE_URL` and skips its local web server
+when set, so the existing specs run unchanged against a deployment from anywhere
+that does have browser egress:
+
+```shell
+E2E_BASE_URL=https://<deployment> npm run test:e2e
+```
+
+That is one command on a laptop, or a CI job. It registers a real account in
+whatever database the deployment points at, which is expected for a smoke test
+and worth knowing before running it against production.
+
+
+  **Still unverified, and not closable until a deployment succeeds:** the
+  end-to-end flow on the deployed URL, both locales and RTL there, and migrations
+  applied against Neon.
+
+  Two things also remain unobservable from this environment, and this document
+  makes no claim about them:
+
+  - **That `DATABASE_URL` and `SESSION_SECRET` are set and scoped to Production.**
+    The Vercel MCP surface has no environment-variable API, and this session's
+    token cannot see the project at all — `list_projects` returns empty,
+    `get_project` 404s, and reading the failed deployment's build logs 404s too,
+    while the GitHub commit status names the project plainly. That is a token
+    scope limit, not evidence of absence.
   - **Whether `DATABASE_URL` is the pooled endpoint.** Serverless runtime wants
-    the `-pooler` host; the direct host will exhaust connections under
-    concurrency. The value is the owner's secret to read and rotate.
+    the `-pooler` host; the direct host exhausts connections under concurrency.
+    The value is the owner's secret to read and rotate.
 
-  Four R0 acceptance items therefore remain open, none of them closed by this
-  pass: the end-to-end flow on the deployed URL, both locales and RTL there,
-  migrations applied against Neon, and a deployed URL worth recording.
+- **Deployed URL:** https://get-fit-amber.vercel.app — connected and building
+  from `main`, but no deployment has yet succeeded. Not usable.
 
-- **Deployed URL:** https://get-fit-amber.vercel.app — live, but serving the
-  default branch (the Autopilot template), not R0. Not yet a usable URL.
+- **CI now genuinely runs, and did not before.** Recorded because it changes what
+  every earlier report in this repository was worth: for the whole of R0's
+  development, *every* passing result came from a local run. The first four
+  Actions runs failed in 2–4 seconds with `runner_id: 0`, no runner name, no
+  steps, and logs that 404 — jobs that never acquired a runner, reproducing
+  across three unrelated commits.
 
-- **CI has never actually run.** All four GitHub Actions runs of
-  `.github/workflows/ci.yml` failed in 2–4 seconds with `runner_id: 0`, no
-  runner name, no steps, and logs that 404. That is a job which never acquired a
-  runner, and it reproduces identically across three unrelated commits including
-  the first. It is not caused by the diff. `Mo3bdlaa/Get-Fit` is a **private**
-  repository, so Actions minutes are metered — the usual cause is an exhausted
-  included-minutes allowance or Actions being disabled for the account. Making
-  the repository public, adding a spending limit, or enabling Actions fixes it;
-  nothing in the workflow file does.
+  That is now closed. Run `32607349683` on `main` at `876ba3a` acquired runner
+  `1000003441` and executed nine real steps, with `npm run verify:full`
+  succeeding in 46 seconds — lint, typecheck, 76 unit tests, build, and both
+  browser tests. The run on the merge commit before it passed the same way.
+  Results from `main` onward are CI-backed; anything reported before
+  2026-08-23 00:16Z was local-only.
 - **Open decisions O1–O5 (§3).** Untouched; they are product decisions. O2
   (default UI language) is currently English, in code as `DEFAULT_LOCALE` in
   `src/lib/i18n/index.ts` — a one-line change when O2 is answered.

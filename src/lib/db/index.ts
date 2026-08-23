@@ -78,8 +78,20 @@ async function createPgDriver(connectionString: string): Promise<Driver> {
   };
 }
 
+/**
+ * The specifier is assembled rather than written literally, and marked
+ * `webpackIgnore`, so that neither the bundler nor Next's file tracer follows
+ * it. PGlite is a devDependency: a literal import gets traced into the
+ * serverless output, and Vercel prunes devDependencies after the build — so the
+ * deployment is packaged around a file that no longer exists and fails. Nothing
+ * in production takes this branch; in development and tests Node resolves it
+ * from node_modules at runtime, as normal.
+ */
+const PGLITE = ["@electric-sql", "pglite"].join("/");
+
 async function createPgliteDriver(): Promise<Driver> {
-  const { PGlite } = await import("@electric-sql/pglite");
+  const { PGlite } = (await import(/* webpackIgnore: true */ PGLITE)) as
+    typeof import("@electric-sql/pglite");
   const dataDir = process.env.PGLITE_DATA_DIR; // undefined = in-memory
   const client = await PGlite.create({
     dataDir,

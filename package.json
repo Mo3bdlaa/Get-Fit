@@ -13,7 +13,8 @@
     "test:e2e": "playwright test",
     "verify": "node scripts/verify.mjs",
     "verify:full": "npm run verify && npm run test:e2e",
-    "db:migrate": "tsx scripts/migrate.ts"
+    "db:migrate": "tsx scripts/migrate.ts",
+    "check:traces": "node scripts/check-traces.mjs"
   },
   "dependencies": {
     "jose": "^6.2.10",
