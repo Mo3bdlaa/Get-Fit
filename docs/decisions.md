@@ -364,22 +364,65 @@ and worth knowing before running it against production.
     the `-pooler` host; the direct host exhausts connections under concurrency.
     The value is the owner's secret to read and rotate.
 
-- **Deployed URL:** https://get-fit-amber.vercel.app — connected and building
-  from `main`, but no deployment has yet succeeded. Not usable.
+- **Deployed URL:** https://get-fit-amber.vercel.app — recorded, and **not yet
+  serving R0**. See the production-branch note below.
+
+- **One setting still stands between `main` and production: Vercel's Production
+  Branch.** Observed after merging the framework fix into `main` (`3494b24`):
+
+  | URL | Unredirected status | What it means |
+  | --- | --- | --- |
+  | `get-fit-git-main-…vercel.app/login` | `302` → `vercel.com/sso-api` | a deployment for `main` exists and is served — as a **preview** |
+  | `get-fit-amber.vercel.app/login` | `404`, `x-vercel-error: NOT_FOUND` | the **production** alias still serves a deployment with no routes |
+  | `get-fit-amber.vercel.app/this-route-does-not-exist` | `404`, identical | not route-specific: that deployment has no application at all |
+
+  Vercel is building `main` and treating it as a preview branch, so the
+  production alias was never updated. Renaming GitHub's default branch does not
+  change Vercel's Production Branch setting, and `vercel.json` cannot set it —
+  it is a project setting only.
+
+  **The fix is one dashboard change:** Vercel → the `get-fit` project → Settings
+  → Git → Production Branch → `main`, then redeploy (or promote the existing
+  `main` preview to production). Nothing in this repository can do it, and this
+  session's token cannot read or write the project's settings.
+
+  Stated as evidence and conclusion separately, per the working rule above: the
+  four status codes are what was observed; "the Production Branch is not `main`"
+  is what they support. The setting itself was not readable from here.
 
 - **CI now genuinely runs, and did not before.** Recorded because it changes what
-  every earlier report in this repository was worth: for the whole of R0's
+  the earlier reports in this repository were worth: for the whole of R0's
   development, *every* passing result came from a local run. The first four
   Actions runs failed in 2–4 seconds with `runner_id: 0`, no runner name, no
   steps, and logs that 404 — jobs that never acquired a runner, reproducing
   across three unrelated commits.
 
-  That is now closed. Run `32607349683` on `main` at `876ba3a` acquired runner
-  `1000003441` and executed nine real steps, with `npm run verify:full`
-  succeeding in 46 seconds — lint, typecheck, 76 unit tests, build, and both
-  browser tests. The run on the merge commit before it passed the same way.
-  Results from `main` onward are CI-backed; anything reported before
-  2026-08-23 00:16Z was local-only.
+  Closed. On the merge commit `3494b24`, run `32611732579` acquired runner
+  `1000003456` and executed nine real steps, with `npm run verify:full`
+  succeeding in 39 seconds — lint, typecheck, 76 unit tests, build, the trace
+  check, and both browser tests. **The local-only caveat no longer applies from
+  `main` onward.** Anything reported before 2026-08-23 00:16Z was local-only.
+
+## The four deployment-dependent items
+
+Closed only where directly observed.
+
+| Item | State | Evidence |
+| --- | --- | --- |
+| Vercel build succeeds | **Closed** | the same commit went `failure` → `success` on `vercel.json` alone; `main` now produces a served deployment rather than a failed one |
+| CI executes with real steps | **Closed** | runner `1000003456`, nine steps, `verify:full` green on `3494b24` |
+| Deployed URL recorded | **Closed** | recorded above, with its true state rather than an implied one |
+| Production serves R0 | **Open** | production alias returns `404` on every path; Production Branch is not `main` |
+| Migrations applied against Neon | **Open** | unobservable from here — no anonymous route touches the database, and every preview route is behind SSO |
+| End-to-end flow on the deployed URL | **Open** | needs a browser with outbound network; stays open until the owner reports the result of `E2E_BASE_URL=… npm run test:e2e` |
+| Both locales and RTL on the deployed URL | **Open** | same run |
+
+What remains unobservable from this environment, and is therefore not claimed
+either way: whether `DATABASE_URL` and `SESSION_SECRET` are set and scoped to
+Production, whether `DATABASE_URL` is the pooled endpoint, and whether the
+application can reach Neon at all.
+
+
 - **Open decisions O1–O5 (§3).** Untouched; they are product decisions. O2
   (default UI language) is currently English, in code as `DEFAULT_LOCALE` in
   `src/lib/i18n/index.ts` — a one-line change when O2 is answered.
