@@ -240,43 +240,40 @@ which is the correct fix, and the message says so.
 
 ## Not done, and why
 
-- **Deployment.** Still failing, and the cause is **not** known. An earlier
-  version of this note claimed it was; that claim was wrong and is corrected
-  below.
+- **Deployment.** The cause was the Vercel project's **framework preset**, and it
+  is fixed in `vercel.json`.
 
-  `main` exists, is the default branch, and carries R0 (PR #1 merged into the
-  old default branch, PR #2 merged that into `main`). Vercel **is** git-connected
-  to the repository — the project is `mo3bdlaas-projects/get-fit` — and it did
-  attempt a deployment on the merge. **That deployment failed**
-  (`dpl_DqtxjkyY2dph6MQwX5CdLbJYyyer`, commit `6273d82`), and
-  https://get-fit-amber.vercel.app still returns `x-vercel-error: NOT_FOUND` on
-  every route.
+  The build failed with:
 
-  **A real defect was found and fixed, and it was not the cause.**
-  `serverExternalPackages` listed `@electric-sql/pglite`, so Next traced that
-  devDependency into every route's file manifest — 90 references per route. Vercel
-  prunes devDependencies after the build, so the packaged deployment would have
-  been built around files that no longer existed. That is a genuine bug and the
-  fix stands (assembled specifier plus `webpackIgnore`; 90 references to zero,
-  with `pg` still traced), guarded by `npm run check:traces` after every build.
+  ```
+  No Output Directory named "public" found after the Build completed.
+  Configure the Output Directory in your Project Settings.
+  ```
 
-  But the deployment carrying that fix **also failed**
-  (`dpl_Bp5tNKSKnhEiBptoXVF3XsV1XumV`, PR #3, commit `350a953`). So the trace
-  issue was not what breaks the deploy, or not the only thing.
+  `public` is the default output directory for Vercel's **"Other"** preset. The
+  project was created while this repository still held only the Autopilot
+  template — no `package.json`, no framework — so Vercel detected nothing and
+  settled on "Other". It ran no Next.js build and then looked for a static site
+  this project does not produce. That also explains the timing: the failure
+  landed nine seconds after the pull request opened, far too fast for a Next
+  build, because no Next build was ever run.
 
-  The one new piece of evidence: that failure was reported **nine seconds** after
-  the pull request was opened. A Next build of this app takes 20–45 seconds
-  anywhere else it has run, so nine seconds is too fast to be a build failing —
-  it points at something before or around the build rather than inside it:
-  project settings, a plan or usage limit, or the deployment being rejected
-  outright. That is a direction to look, not a diagnosis, and it will not become
-  one from this environment.
+  `vercel.json` now pins `"framework": "nextjs"` — the fix the error message
+  itself offers as the alternative to changing the dashboard. Keeping it in the
+  repository rather than in project settings means it is version controlled,
+  reviewable, and survives the project being recreated. The setting that broke
+  this was invisible both from here and from the code.
 
-  **What is needed to get further:** the build log for a failed deployment
-  (`npx vercel inspect <id> --logs`, or the Vercel dashboard), or read access to
-  the project for this session. Everything above was inferred from local
-  reproduction and GitHub commit statuses, which is precisely how the wrong
-  conclusion got reached the first time.
+  **Two earlier diagnoses in this document were wrong**, and both were reached the
+  same way: inferred from local reproduction and GitHub commit statuses, because
+  this session's Vercel token 404s on the project, its deployments, and their
+  build logs. The first guessed a missing environment variable; the second
+  guessed a devDependency traced into the serverless output. The second was a
+  real defect and its fix stands on its own merits — but it was not this. One
+  line of the actual build log settled in seconds what two rounds of inference
+  did not. Recorded because it will recur: when the log is unreadable, say so and
+  ask for it, rather than publishing the best available hypothesis as a cause.
+
 
   **Still unverified, and not closable until a deployment succeeds:** the
   end-to-end flow on the deployed URL, both locales and RTL there, and migrations
