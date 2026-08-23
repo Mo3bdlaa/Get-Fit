@@ -1,9 +1,10 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  // Both database drivers are required at runtime rather than bundled. That
-  // keeps `pg`'s native bits intact, and it means the PGlite branch — which a
-  // production deployment never takes — does not have to resolve at build time.
-  serverExternalPackages: ["pg", "@electric-sql/pglite"],
+  // `pg` is required at runtime rather than bundled, which keeps its native
+  // bits intact. PGlite is deliberately absent: listing it here marks it
+  // external, and Next then traces it into the serverless output — but it is a
+  // devDependency that Vercel prunes after the build. See src/lib/db/index.ts.
+  serverExternalPackages: ["pg"],
   // `npm run verify` runs `tsc --noEmit` and `eslint` over the whole project —
   // including `tests/`, which Next's build-time check does not cover. Repeating
   // a narrower version of both inside the build costs seconds the Stop hook's
