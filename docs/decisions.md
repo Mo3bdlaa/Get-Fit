@@ -4,6 +4,44 @@ Choices made while building the walking skeleton that the BRD did not settle,
 plus the ones it settled that constrained the code. Each says what it costs to
 change later, so R1 knows what is cheap and what is not.
 
+## Standing working rules
+
+Not observations about one incident — rules that apply to the next one.
+
+### Inference is not evidence
+
+Local reproduction plus a red commit status is a hypothesis. It is not a cause,
+and it must not be written down or reported as one.
+
+Chasing a failed deployment in this repository produced two confident, wrong
+diagnoses in a row — a missing environment variable, then a devDependency traced
+into the serverless output — both reasoned from a local build and a GitHub status
+line, because the Vercel build log was unreadable from the session doing the
+work. The second was a real defect, which made it more convincing and no more
+correct. One line of the actual log settled it in seconds.
+
+So: **when the authoritative log is unreachable, say it is unreachable and ask
+for it.** Offer the hypothesis as a hypothesis, clearly labelled, and keep
+looking for the log. The cost of asking is one message. The cost of publishing a
+guess as a finding is that everyone downstream believes a fixed thing is fixed.
+
+The same rule covers absence: a tool returning 404 or an empty list because it
+lacks permission is not evidence that the thing does not exist. Report the limit,
+not a conclusion drawn from it.
+
+### Check the unredirected status before following redirects
+
+`curl -L` against an SSO-gated deployment returns `200` — for the identity
+provider's login page. The deployment looks healthy and is not serving the app at
+all. This exact mistake was made here: a preview URL was reported as "live and
+serving the app" on the strength of a followed redirect, when every route was
+answering `302` to `vercel.com/sso-api`.
+
+Check the raw status first (`curl -sSI`, or `-o /dev/null -w '%{http_code}'`
+without `-L`), then assert content, and only then follow redirects if the flow
+itself is what is under test. A `200` is only meaningful once you know which
+origin produced it.
+
 ## Storage: Neon Postgres, `pg` driver
 
 Superseded the R0 SQLite choice. Managed Postgres is Neon and the host is
