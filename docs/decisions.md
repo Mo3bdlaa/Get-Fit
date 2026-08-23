@@ -214,32 +214,51 @@ not fit in that budget. CI runs `npm run verify:full`.
 
 ## Not done, and why
 
-- **Deployment.** The *decisions* are closed — Vercel and Neon — and the code is
-  ready for both. What is missing is a credential and a branch, neither of which
-  is mine to invent:
+- **Deployment.** A Vercel project now exists and is serving
+  **https://get-fit-amber.vercel.app** — but it is not serving this app. Every
+  route returns Vercel's own `NOT_FOUND` (`x-vercel-error: NOT_FOUND`,
+  `content-type: text/plain`, no Next.js response headers), which is what a
+  deployment of the Autopilot template looks like: no `package.json`, no
+  framework, no routes.
 
-  1. **A Neon connection string.** There is no Neon account, API key, or
-     `DATABASE_URL` reachable from this environment, and no Neon tooling. The
-     app refuses to start in production without one, by design.
-  2. **Something to deploy.** `main` still holds only the Autopilot template;
-     all of R0 is on `claude/check-and-proceed-45as9y`. A Vercel project linked
-     to the repository today would build the template.
+  The cause is the branch, not the configuration. This repository has no `main`;
+  its default branch is `claude/autonomous-review-loop-ryjsp2`, which holds only
+  the template. Vercel builds the default branch as production, so production is
+  the template. All of R0 is on `claude/check-and-proceed-45as9y`, open as PR #1
+  and unmerged.
 
-  Everything either needs is in place: `npm run db:migrate` applies the schema
-  and seeds the catalogue against whatever `DATABASE_URL` points at, the pooled
-  Neon endpoint is what the driver expects, and the only other required variable
-  is `SESSION_SECRET`.
+  **What unblocks it:** merge PR #1 (and rename the default branch to `main`
+  while you are there). The next production build then contains the app.
 
-  | Variable | Value |
-  | --- | --- |
-  | `DATABASE_URL` | the Neon **pooled** connection string (the `-pooler` host) |
-  | `SESSION_SECRET` | any high-entropy random string, e.g. `openssl rand -base64 48` |
+  Two things could not be verified from this environment, and are not claims
+  this document should make:
 
-  Until it is deployed, four of the R0 acceptance items are unverified: the
-  end-to-end flow on the deployed URL, both locales and RTL there, migrations
-  run against Neon, and the recorded URL below.
+  - **That `DATABASE_URL` and `SESSION_SECRET` are set and scoped to
+    Production.** The Vercel MCP surface exposes no environment-variable API at
+    all, and this session's token cannot see the project — `list_projects` on
+    `mo3bdlaas-projects` returns empty and `get_project` 404s for every plausible
+    slug. The deployment 404s on every route, so the variables cannot be
+    inferred from behaviour either.
+  - **Whether `DATABASE_URL` is the pooled endpoint.** Serverless runtime wants
+    the `-pooler` host; the direct host will exhaust connections under
+    concurrency. The value is the owner's secret to read and rotate.
 
-- **Deployed URL:** not yet deployed. This line is the one to fill in.
+  Four R0 acceptance items therefore remain open, none of them closed by this
+  pass: the end-to-end flow on the deployed URL, both locales and RTL there,
+  migrations applied against Neon, and a deployed URL worth recording.
+
+- **Deployed URL:** https://get-fit-amber.vercel.app — live, but serving the
+  default branch (the Autopilot template), not R0. Not yet a usable URL.
+
+- **CI has never actually run.** All four GitHub Actions runs of
+  `.github/workflows/ci.yml` failed in 2–4 seconds with `runner_id: 0`, no
+  runner name, no steps, and logs that 404. That is a job which never acquired a
+  runner, and it reproduces identically across three unrelated commits including
+  the first. It is not caused by the diff. `Mo3bdlaa/Get-Fit` is a **private**
+  repository, so Actions minutes are metered — the usual cause is an exhausted
+  included-minutes allowance or Actions being disabled for the account. Making
+  the repository public, adding a spending limit, or enabling Actions fixes it;
+  nothing in the workflow file does.
 - **Open decisions O1–O5 (§3).** Untouched; they are product decisions. O2
   (default UI language) is currently English, in code as `DEFAULT_LOCALE` in
   `src/lib/i18n/index.ts` — a one-line change when O2 is answered.
